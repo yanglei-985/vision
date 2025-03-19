@@ -160,6 +160,43 @@
             opacity: 1;
         }
         
+        /* Anki评级按钮样式 */
+        .rating-buttons {
+            display: flex;
+            justify-content: center;
+            margin-top: 20px;
+            gap: 10px;
+        }
+        
+        .rating-btn {
+            padding: 10px 15px;
+            font-size: 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+        
+        .rating-btn.again {
+            background-color: #f44336;
+            color: white;
+        }
+        
+        .rating-btn.hard {
+            background-color: #ff9800;
+            color: white;
+        }
+        
+        .rating-btn.good {
+            background-color: #4caf50;
+            color: white;
+        }
+        
+        .rating-btn.easy {
+            background-color: #2196f3;
+            color: white;
+        }
+        
         @media (max-width: 600px) {
             .display-word {
                 font-size: 3rem;
@@ -200,6 +237,14 @@
         <div class="display-word" id="display-word"></div>
         <div id="explanation" style="font-size: 1.5rem; max-width: 80%; text-align: center; margin-top: 20px;"></div>
         <div id="example" style="font-size: 1.5rem; max-width: 80%; text-align: center; margin-top: 20px; font-style: italic;"></div>
+        
+        <div class="rating-buttons hidden" id="rating-buttons">
+            <button class="rating-btn again" data-rating="1">再次学习</button>
+            <button class="rating-btn hard" data-rating="2">困难</button>
+            <button class="rating-btn good" data-rating="3">良好</button>
+            <button class="rating-btn easy" data-rating="4">简单</button>
+        </div>
+        
         <div class="display-controls">
             <button id="search-btn" class="btn">查询详细释义</button>
             <button id="translate-btn" class="btn">获取解释与例句</button>
@@ -211,6 +256,7 @@
     <script>
         // 初始化本地存储
         let words = JSON.parse(localStorage.getItem('frenchWords')) || [];
+        let wordStats = JSON.parse(localStorage.getItem('frenchWordStats')) || {};
         const wordInput = document.getElementById('word-input');
         const addBtn = document.getElementById('add-btn');
         const wordsList = document.getElementById('words-list');
@@ -226,10 +272,24 @@
         const importBtn = document.getElementById('import-btn');
         const searchBtn = document.getElementById('search-btn');
         const translateBtn = document.getElementById('translate-btn');
+        const ratingButtons = document.getElementById('rating-buttons');
         
         // API密钥
         const apiKey = 'sk-G8fwDqN0IaB0hayInoXa7I72vwSdd9V4C2K9c1wwmncvEHjH';
         let currentWord = '';
+        let currentIndex = -1;
+        
+        // Anki算法相关常量
+        const AGAIN_INTERVAL = 1; // 1天
+        const HARD_INTERVAL_FACTOR = 1.2;
+        const GOOD_INTERVAL_FACTOR = 2.0;
+        const EASY_INTERVAL_FACTOR = 3.0;
+        const INITIAL_EASE = 2.5; // 初始难度系数
+        const MINIMUM_EASE = 1.3; // 最小难度系数
+        const EASE_MODIFIER_AGAIN = -0.2; // 再次学习时难度系数的调整值
+        const EASE_MODIFIER_HARD = -0.15; // 困难时难度系数的调整值
+        const EASE_MODIFIER_GOOD = 0; // 良好时难度系数的调整值
+        const EASE_MODIFIER_EASY = 0.15; // 简单时难度系数的调整值
         
         // 更新单词列表显示
         function updateWordsList() {
@@ -251,6 +311,25 @@
                 wordText.className = 'word-text';
                 wordText.textContent = word;
                 
+                // 添加显示间隔信息
+                if (wordStats[word]) {
+                    const dueDate = new Date(wordStats[word].nextReview);
+                    const today = new Date();
+                    const daysUntilDue = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
+                    
+                    const statusSpan = document.createElement('span');
+                    statusSpan.style.marginLeft = '10px';
+                    statusSpan.style.fontSize = '12px';
+                    if (daysUntilDue <= 0) {
+                        statusSpan.textContent = '今天到期';
+                        statusSpan.style.color = '#f44336';
+                    } else {
+                        statusSpan.textContent = `${daysUntilDue}天后复习`;
+                        statusSpan.style.color = '#4caf50';
+                    }
+                    wordText.appendChild(statusSpan);
+                }
+                
                 const removeBtn = document.createElement('button');
                 removeBtn.className = 'remove-btn';
                 removeBtn.innerHTML = '&times;';
@@ -268,6 +347,19 @@
             if (word && !words.includes(word)) {
                 words.push(word);
                 localStorage.setItem('frenchWords', JSON.stringify(words));
+                
+                // 初始化单词统计数据
+                if (!wordStats[word]) {
+                    wordStats[word] = {
+                        ease: INITIAL_EASE,
+                        interval: 0,
+                        reviews: 0,
+                        nextReview: new Date().toISOString(),
+                        lastReview: null
+                    };
+                    localStorage.setItem('frenchWordStats', JSON.stringify(wordStats));
+                }
+                
                 wordInput.value = '';
                 updateWordsList();
             } else if (words.includes(word)) {
@@ -277,9 +369,46 @@
         
         // 删除单词
         function removeWord(index) {
+            const word = words[index];
             words.splice(index, 1);
             localStorage.setItem('frenchWords', JSON.stringify(words));
+            
+            // 删除单词统计数据
+            if (wordStats[word]) {
+                delete wordStats[word];
+                localStorage.setItem('frenchWordStats', JSON.stringify(wordStats));
+            }
+            
             updateWordsList();
+        }
+        
+        // 获取下一个要复习的单词
+        function getNextReviewWord() {
+            const today = new Date();
+            
+            // 查找到期的单词
+            const dueWords = words.filter(word => {
+                if (!wordStats[word]) return true; // 没有统计数据的单词优先显示
+                const nextReview = new Date(wordStats[word].nextReview);
+                return nextReview <= today;
+            });
+            
+            if (dueWords.length > 0) {
+                // 有到期单词，随机选择一个
+                const randomIndex = Math.floor(Math.random() * dueWords.length);
+                return dueWords[randomIndex];
+            } else {
+                // 没有到期单词，按照最接近到期的顺序选择
+                if (words.length === 0) return null;
+                
+                const sortedWords = [...words].sort((a, b) => {
+                    const dateA = wordStats[a] ? new Date(wordStats[a].nextReview) : new Date();
+                    const dateB = wordStats[b] ? new Date(wordStats[b].nextReview) : new Date();
+                    return dateA - dateB;
+                });
+                
+                return sortedWords[0];
+            }
         }
         
         // 随机展示单词
@@ -289,8 +418,10 @@
                 return;
             }
             
-            const randomIndex = Math.floor(Math.random() * words.length);
-            currentWord = words[randomIndex];
+            // 使用Anki算法选择下一个单词
+            currentWord = getNextReviewWord();
+            currentIndex = words.indexOf(currentWord);
+            
             displayWord.textContent = currentWord;
             
             // 清除之前的解释和例句
@@ -299,12 +430,75 @@
             explanation.classList.remove('show');
             example.classList.remove('show');
             
+            // 隐藏评级按钮，直到用户查看解释
+            ratingButtons.classList.add('hidden');
+            
             fullscreenDisplay.classList.remove('hidden');
+        }
+        
+        // 评级单词记忆
+        function rateWord(rating) {
+            if (!wordStats[currentWord]) {
+                wordStats[currentWord] = {
+                    ease: INITIAL_EASE,
+                    interval: 0,
+                    reviews: 0,
+                    nextReview: new Date().toISOString(),
+                    lastReview: null
+                };
+            }
+            
+            const stats = wordStats[currentWord];
+            stats.reviews++;
+            stats.lastReview = new Date().toISOString();
+            
+            // 根据评级计算新的间隔和难度系数
+            let newInterval = 0;
+            let easeModifier = 0;
+            
+            switch (rating) {
+                case 1: // 再次学习
+                    newInterval = AGAIN_INTERVAL;
+                    easeModifier = EASE_MODIFIER_AGAIN;
+                    break;
+                case 2: // 困难
+                    newInterval = Math.max(1, Math.ceil(stats.interval * HARD_INTERVAL_FACTOR));
+                    easeModifier = EASE_MODIFIER_HARD;
+                    break;
+                case 3: // 良好
+                    newInterval = Math.ceil(stats.interval * stats.ease * GOOD_INTERVAL_FACTOR);
+                    if (newInterval < 1) newInterval = 1;
+                    easeModifier = EASE_MODIFIER_GOOD;
+                    break;
+                case 4: // 简单
+                    newInterval = Math.ceil(stats.interval * stats.ease * EASY_INTERVAL_FACTOR);
+                    if (newInterval < 1) newInterval = 2;
+                    easeModifier = EASE_MODIFIER_EASY;
+                    break;
+            }
+            
+            // 更新难度系数
+            stats.ease += easeModifier;
+            if (stats.ease < MINIMUM_EASE) stats.ease = MINIMUM_EASE;
+            
+            // 更新间隔和下次复习时间
+            stats.interval = newInterval;
+            const nextReviewDate = new Date();
+            nextReviewDate.setDate(nextReviewDate.getDate() + newInterval);
+            stats.nextReview = nextReviewDate.toISOString();
+            
+            // 保存更新
+            wordStats[currentWord] = stats;
+            localStorage.setItem('frenchWordStats', JSON.stringify(wordStats));
+            
+            // 显示下一个单词
+            showRandomWord();
         }
         
         // 退出全屏展示
         function exitFullscreen() {
             fullscreenDisplay.classList.add('hidden');
+            updateWordsList(); // 更新列表显示复习状态
         }
         
         // 查询详细释义（跳转到法语助手）
@@ -337,11 +531,11 @@
                         messages: [
                             {
                                 role: 'system',
-                                content: 'Vous êtes un professeur de français, doué pour expliquer brièvement les mots français et fournir des exemples. Expliquez en chinois simple la signification essentielle des mots français, puis donnez une phrase d’exemple concise en français. Format : 解释：[简短中文解释] 法法释义：[explication authentique en français] 例句：[une phrase française courante avec sujet, verbe et objet]'
+                                content: '你是一位法语教师，擅长对法语单词进行解释和给出例句。请用简单的中文解释法语单词的核心含义，然后给出一个简洁的法语例句，并且对例句进行分析。格式为：\n解释：[简短中文解释]\n法法释义：[简短法语解释]\n例句：[一个简短的法语例句]\n例句分析：[例句详细分析]'
                             },
                             {
                                 role: 'user',
-                                content: `请解释法语单词："${currentWord}"`
+                                content: `请用地道的语言解释法语单词："${currentWord}"`
                             }
                         ],
                         temperature: 0.7,
@@ -359,6 +553,7 @@
                     let chineseExplanation = '';
                     let frenchExplanation = '';
                     let exampleSentence = '';
+                    let sentenceAnalysis = '';
                     
                     for (const part of parts) {
                         if (part.startsWith('解释：')) {
@@ -367,18 +562,25 @@
                             frenchExplanation = part.replace('法法释义：', '').trim();
                         } else if (part.startsWith('例句：')) {
                             exampleSentence = part.replace('例句：', '').trim();
+                        } else if (part.startsWith('例句分析：')) {
+                            sentenceAnalysis = part.replace('例句分析：', '').trim();
                         }
-                    }
+                    }   
                     
                     // 显示解释和例句
                     explanation.innerHTML = `<strong>解释：</strong>${chineseExplanation}<br><strong>法法释义：</strong>${frenchExplanation}`;
-                    example.innerHTML = `<strong>例句：</strong>${exampleSentence}`;
+                    example.innerHTML = `<strong>例句：</strong>${exampleSentence}<br><strong>例句分析：</strong>${sentenceAnalysis}`;
                     
                     // 淡入效果
                     setTimeout(() => {
                         explanation.classList.add('show');
                         setTimeout(() => {
                             example.classList.add('show');
+                            
+                            // 显示评级按钮
+                            setTimeout(() => {
+                                ratingButtons.classList.remove('hidden');
+                            }, 500);
                         }, 300);
                     }, 100);
                 } else {
@@ -469,7 +671,14 @@
             }
         }
         
-        // 按钮事件监听
+        // 添加按钮事件监听
+        document.querySelectorAll('.rating-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const rating = parseInt(btn.getAttribute('data-rating'));
+                rateWord(rating);
+            });
+        });
+        
         addBtn.addEventListener('click', addWord);
         wordInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') addWord();
