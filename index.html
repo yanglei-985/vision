@@ -818,7 +818,9 @@ function showSpecificWord(word) {
         function searchWordDetails() {
             window.open(`https://www.frdic.com/dicts/fr/${encodeURIComponent(currentWord)}`, '_blank');
         }
-        
+        function searchWordDetails() {
+            window.open(`https://youglish.com/french${encodeURIComponent(currentWord)}`, '_blank');
+        }
         // 使用API获取解释和例句
         async function getExplanationAndExample() {
             // 如果已经显示，则不重复请求
