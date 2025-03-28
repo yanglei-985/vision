@@ -465,6 +465,7 @@
         <div class="display-controls">
             <button id="search-btn" class="btn">查询详细释义</button>
             <button id="translate-btn" class="btn">获取解释与例句</button>
+            <button id="Authentique" class="btn">地道发音</button>
             <button id="practice-btn" class="btn">练习造句</button>
             <button id="next-btn" class="btn">下一个</button>
             <button id="exit-btn" class="btn">退出</button>
@@ -818,9 +819,16 @@ function showSpecificWord(word) {
         function searchWordDetails() {
             window.open(`https://www.frdic.com/dicts/fr/${encodeURIComponent(currentWord)}`, '_blank');
         }
-        function searchWordDetails() {
-            window.open(`https://youglish.com/french${encodeURIComponent(currentWord)}`, '_blank');
+        
+        
+        
+        function jumpToYouGlish() {
+            window.open(`https://youglish.com/pronounce/${encodeURIComponent(currentWord)}/french`, '_blank');
         }
+
+         document.getElementById('Authentique').addEventListener('click', jumpToYouGlish);
+
+        
         // 使用API获取解释和例句
         async function getExplanationAndExample() {
             // 如果已经显示，则不重复请求
